@@ -79,6 +79,19 @@ def _walk(col_ref, include_sub, on_doc):
 
 
 # ------------------------------------------------------------------ backup
+# FAST MODE: pehle har doc par `collections()` ka alag RPC jaata tha (10k users = 10k extra calls = CPU + net ka bada hissa).
+# Ab sirf rules mein jo subcollections hain unhe collection-group se EK stream mein padhte hain.
+# Purana (har doc probe) tareeka chahiye to env BACKUP_PROBE_SUBS=1 karo.
+KNOWN_SUBS = {
+    "users": ("transactions", "notifications", "matchHistory"),
+    "gift_codes": ("redeems",),
+    "cchats": ("msgs",), "cgroups": ("msgs",),
+    "chats": ("messages",), "groups": ("messages",),
+}
+PROBE_SUBS = os.environ.get("BACKUP_PROBE_SUBS", "").lower() in ("1", "true", "yes", "on")
+EXTRA_SUBS = tuple(x.strip() for x in os.environ.get("BACKUP_EXTRA_SUBS", "").split(",") if x.strip())
+
+
 def do_backup(job, collections=None, include_sub=True, label="manual"):
     db = fb.get_db()
     cols = collections or list_root_collections()
@@ -101,9 +114,21 @@ def do_backup(job, collections=None, include_sub=True, label="manual"):
             if total % 100 == 0:
                 job["progress"] = f"{total} docs backup ho gaye…"
             pacer.step()
+        fast = include_sub and not PROBE_SUBS
+        sub_roots = {}                                   # subcollection naam -> roots (prefix) jinke liye chahiye
         for c in cols:
             job["progress"] = f"{c} ({total} docs so far)"
-            _walk(db.collection(c), include_sub, on_doc)
+            _walk(db.collection(c), include_sub and not fast, on_doc)
+            if fast:
+                for sn in tuple(KNOWN_SUBS.get(c, ())) + EXTRA_SUBS:
+                    sub_roots.setdefault(sn, set()).add(c + "/")
+        for sn, roots in sub_roots.items():
+            job["progress"] = f"{sn} (subcollection, {total} docs so far)"
+            roots = tuple(roots)
+            for snap in db.collection_group(sn).stream():
+                p = snap.reference.path
+                if p.startswith(roots):
+                    on_doc(p, snap.to_dict() or {})
     os.replace(tmp, path)
     prune_backups()
     return {"name": name, "docs": total, "size": os.path.getsize(path), "collections": cols}
@@ -306,6 +331,21 @@ def save_settings(interval_hours=None, keep=None):
         print("[backup] settings save:", e, flush=True)
 
 
+def _tg_copy(res):
+    """Render free ka disk restart par saaf hota hai — isliye auto-backup ki ek copy Telegram par bhi (agar account add hai)."""
+    if os.environ.get("AUTO_BACKUP_TELEGRAM", "true").lower() in ("0", "false", "no", "off"):
+        return
+    try:
+        import tgbackup
+        if not tgbackup.public_cfg()["configured"] or not res.get("name"):
+            return
+        if res.get("size", 0) > 1900 * 1024 * 1024:
+            return
+        tgbackup.send([(os.path.join(BACKUP_DIR, res["name"]), f"🗂 Auto backup — {res.get('docs', 0)} docs")])
+    except Exception as e:
+        print("[backup] telegram copy:", e, flush=True)
+
+
 def scheduler_loop():
     time.sleep(300)          # boot ke 5 min baad hi (pehle bot aur panel settle ho jaye)
     loaded = False
@@ -328,6 +368,7 @@ def scheduler_loop():
                     if j["status"] == "done":
                         _settings["last_auto"] = int(time.time())
                         save_settings()
+                        _tg_copy(j.get("result") or {})
         except Exception as e:
             print("[backup] scheduler:", e, flush=True)
         time.sleep(60)
