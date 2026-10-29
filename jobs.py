@@ -77,14 +77,14 @@ def cleanup_unverified(minutes=20):
 
 def _loop():
     """Background jobs — SLOW MODE: boot ke 2.5 min baad, ek-ek karke (staggered), kam baar.
-    reward: 15 min | data-center tick: 10 min | unverified cleanup: 30 min."""
+    reward: 15 min | data-center tick: 10 min | unverified cleanup: 6 ghante (har baar saare Auth users list hote hain)."""
     t0 = time.time()
     # alag-alag waqt par pehli baar chalein (ek saath nahi): reward ~0s, dc ~+2min, cleanup ~+5min
-    last = {"reward": t0 - 900, "dc": t0 - 600 + 120, "clean": t0 - 1800 + 300}
+    last = {"reward": t0 - 900, "dc": t0 - 600 + 120, "clean": t0 - 21600 + 600}
     time.sleep(150)
     while True:
         t = time.time()
-        for name, every, fn in (("reward", 900, monthly_reward), ("dc", 600, datacenter._tick), ("clean", 1800, cleanup_unverified)):
+        for name, every, fn in (("reward", 900, monthly_reward), ("dc", 600, datacenter._tick), ("clean", 21600, cleanup_unverified)):
             if t - last[name] >= every:
                 last[name] = t
                 try: fn()
