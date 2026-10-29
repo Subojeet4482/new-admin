@@ -108,3 +108,22 @@ Free plan mein CPU bahut kam hai, isliye **Fampay bot sabse upar** rakha gaya ha
 | **Panel polling** | Server strip 10s, bot tab 8s, finance 45s, dashboard counts 90s, users tab 60s cache. |
 
 Env: `SLOW_FACTOR` (1 = normal, 2 = aur dheema), `BACKUP_PACE_EVERY`, `BACKUP_PACE_REST`.
+
+
+## Load / down fix (latest)
+
+Render free (0.1 CPU, 512 MB RAM) par slow aur down hone ke asli karan aur unka ilaaj:
+
+| Pehle | Ab |
+|---|---|
+| Backup har doc par alag `collections()` call karta tha (10k users = 10k extra calls) | Subcollections (users/transactions, notifications, matchHistory, redeems, msgs, messages) collection-group se **ek stream** mein. Purana tareeka: `BACKUP_PROBE_SUBS=1` |
+| Lite panel Wallet "All" saare users ke saare transactions RAM mein laata tha (OOM → service restart) | Sirf sabse naye 300 (`WALLET_HISTORY_LIMIT`). Pending list pehle jaisi (kuch miss nahi hota) |
+| Lite panel Matches poori collection padhta tha | Naye 300 (`MATCH_LIST_LIMIT`) |
+| Unverified-signup cleanup har 30 min mein saare Auth users list karta tha | Har 6 ghante |
+| Data Center "summary" har baar poora type stream karta tha | 10 min cache |
+| Auto-backup sirf disk par (restart par gayab) | Telegram account add ho to uski copy Telegram par bhi (`AUTO_BACKUP_TELEGRAM`) |
+| `/api/_login_debug` bina login ke password/PIN ki length batata tha | Band; sirf `LOGIN_DEBUG=1` par chalta hai |
+| gunicorn heartbeat disk par | `--worker-tmp-dir /dev/shm` (Render dashboard mein Start Command bhi yahi karo) |
+| Backup pace: har 10 docs par 1s | Ab har 200 docs par 0.5s (N+1 hatne ke baad itna rukna zaroori nahi) |
+
+**Free hours:** Render har workspace ko mahine ke 750 free hours deta hai, per service nahi. Yeh service 24x7 chalegi (bot + self-ping) to ~720 hours kha leti hai. Dusri koi free service bhi 24x7 hai to hours khatam hone par Render sab free services mahine ke end tak suspend kar deta hai.
