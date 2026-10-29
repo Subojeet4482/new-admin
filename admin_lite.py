@@ -427,12 +427,29 @@ def wallet():
     return jsonify(ok=True, items=cached("wallet:" + mode, 20, lambda: _load_wallet(mode)))
 
 
+WALLET_HISTORY_N = int(env("WALLET_HISTORY_LIMIT") or 300)
+WALLET_SCAN_CAP = int(env("WALLET_SCAN_CAP") or 3000)
+MATCH_LIST_N = int(env("MATCH_LIST_LIMIT") or 300)
+
+
 def _load_wallet(mode):
     cg = get_db().collection_group("transactions")
-    try:
-        snaps = list(slow.paced(cg.where("status", "==", "pending").stream(), 100, 0.3)) if mode == "pending" else list(slow.paced(cg.stream(), 100, 0.3))
-    except Exception:  # collection-group index na ho to sab padh ke filter
-        snaps = list(slow.paced(cg.stream(), 100, 0.3))
+    if mode == "pending":
+        try:
+            snaps = list(slow.paced(cg.where("status", "==", "pending").stream(), 100, 0.3))
+        except Exception:  # collection-group index na ho to sab padh ke filter (pending kabhi miss nahi hone chahiye)
+            snaps = list(slow.paced(cg.stream(), 100, 0.3))
+    else:
+        # History: pehle poori collection-group (saare users ke saare transactions) RAM mein aati thi -> free plan par OOM/slow.
+        # Ab sirf sabse naye N (createdAt aur timestamp dono se). Index na ho to capped scan.
+        try:
+            seen = {}
+            for fld in ("createdAt", "timestamp"):
+                for s in cg.order_by(fld, direction="DESCENDING").limit(WALLET_HISTORY_N).stream():
+                    seen[s.reference.path] = s
+            snaps = list(seen.values())
+        except Exception:
+            snaps = list(slow.paced(cg.limit(WALLET_SCAN_CAP).stream(), 100, 0.3))
     items = [trx_item(s) for s in snaps]
     if mode == "pending":
         items = [i for i in items if i["status"] == "pending"]
@@ -528,7 +545,12 @@ def matches():
 
 def _load_matches():
     out = []
-    for s in slow.paced(get_db().collection("matches").stream(), 50, 0.3):
+    col = get_db().collection("matches")
+    try:
+        snaps = list(col.order_by("startTime", direction="DESCENDING").limit(MATCH_LIST_N).stream())   # sirf naye matches
+    except Exception:
+        snaps = list(slow.paced(col.stream(), 50, 0.3))
+    for s in snaps:
         m = s.to_dict() or {}
         m.pop("participants", None)
         out.append({"id": s.id, **m})
