@@ -60,8 +60,8 @@ def paced(iterable, every=25, rest_s=0.5):
 
 
 def backup_pacer(auto=False):
-    every = int(os.environ.get("BACKUP_PACE_EVERY", "10") or 10)
-    rest_s = float(os.environ.get("BACKUP_PACE_REST", "1.0") or 1.0)
+    every = int(os.environ.get("BACKUP_PACE_EVERY", "200") or 200)
+    rest_s = float(os.environ.get("BACKUP_PACE_REST", "0.5") or 0.5)
     return Pacer(every, rest_s * (2 if auto else 1))
 
 
