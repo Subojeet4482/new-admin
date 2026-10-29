@@ -5,7 +5,7 @@ services:
     plan: free
     buildCommand: pip install -r requirements.txt
     # 1 worker + threads: bot aur backup scheduler isi process ke andar chalte hain
-    startCommand: gunicorn app:app --workers 1 --threads 16 --timeout 120 --bind 0.0.0.0:$PORT
+    startCommand: gunicorn app:app --workers 1 --threads 16 --timeout 120 --worker-tmp-dir /dev/shm --bind 0.0.0.0:$PORT
     healthCheckPath: /health
     envVars:
       - key: PYTHON_VERSION
@@ -60,9 +60,11 @@ services:
       - key: SLOW_FACTOR          # 1 = normal slow-mode, 2 = aur dheema, 0.5 = thoda tez
         value: "1"
       - key: BACKUP_PACE_EVERY    # backup mein itne docs ke baad aaram
-        value: "10"
+        value: "200"
       - key: BACKUP_PACE_REST     # aaram ke seconds (auto-backup mein 2x)
-        value: "1.0"
+        value: "0.5"
+      - key: AUTO_BACKUP_TELEGRAM # auto-backup ki copy Telegram par (account add ho to)
+        value: "true"
       - key: KEEPALIVE
         value: "true"
       - key: KEEPALIVE_INTERVAL
