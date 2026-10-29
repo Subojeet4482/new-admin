@@ -59,6 +59,9 @@ def health():
 # mein sahi cheez bhari hai ya nahi. Render free plan mein Shell nahi hota isliye yeh route banaya.
 @app.get("/api/_login_debug")
 def _login_debug():
+    # Pehle yeh bina login ke password/PIN ki length bata raha tha. Ab sirf env LOGIN_DEBUG=1 par chalega.
+    if os.environ.get("LOGIN_DEBUG", "").lower() not in ("1", "true", "yes", "on"):
+        return bad("Not found", 404)
     oe, op, on = security.creds()
     ae, ap, an = security.admin_creds()
     return jsonify(
@@ -332,11 +335,18 @@ def dc_types():
               monthly=st.get("monthly") or {}, telegram=tgbackup.public_cfg(), files=[f for f in backup.list_backups() if f["name"].startswith("ff_")][:20])
 
 
+_sum_cache = {}
+
+
 @app.get("/api/dc/<key>/summary")
 @security.login_required
 def dc_summary(key):
     if key not in datacenter.TYPES: return bad("Unknown type", 404)
-    try: return ok(**datacenter.summary(key))
+    hit = _sum_cache.get(key)
+    if hit and time.time() - hit[0] < 600 and not request.args.get("fresh"):      # summary poora type stream karta hai — 10 min cache
+        return ok(**hit[1])
+    try:
+        r = datacenter.summary(key); _sum_cache[key] = (time.time(), r); return ok(**r)
     except Exception as e: return bad(f"Firestore error: {e}", 500)
 
 
